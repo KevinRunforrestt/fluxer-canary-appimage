@@ -1,0 +1,73 @@
+name: Build Fluxer Canary AppImage
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build AppImage
+    runs-on: ubuntu-latest
+    container: ghcr.io/pkgforge-dev/archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare Arch Linux container
+        uses: pkgforge-dev/anylinux-setup-action@v2
+
+      - name: Build AppImage
+        run: |
+          chmod +x ./build.sh
+          ./build.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AppImage
+          path: |
+            dist/*.AppImage
+            dist/*.AppImage.zsync
+            dist/*.AppImage.sha256
+            dist/appinfo
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Release to GitHub
+    if: ${{ github.ref_name == 'main' }}
+    needs: [build]
+    permissions: write-all
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: AppImage
+          merge-multiple: true
+
+      - name: Release AppImage
+        uses: pkgforge-dev/make-stable-appimage-release@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          release_name: "Fluxer Canary"
+          release_body: |
+            # Fluxer Canary AppImage
+
+            Fluxer Canary packaged using the
+            [Anylinux-AppImages](https://github.com/pkgforge-dev/Anylinux-AppImages) methodology.
+
+            ## Features
+            - Runs on any Linux distro (glibc, musl, NixOS)
+            - No FUSE required (uruntime 0-requirements fallback)
+            - All dependencies bundled (libc, ld-linux, mesa, audio, X11, Wayland)
+
+            ## Usage
+            ```bash
+            chmod +x fluxer-canary-*.AppImage
+            ./fluxer-canary-x86_64.AppImage
+            ```
+
+            ## Auto-update
+            Includes `.zsync` for delta updates via AM, soar, or AppImageUpdate.
+          release_files: |
+            *.AppImage
+            *.AppImage.zsync
