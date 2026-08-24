@@ -4,6 +4,12 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
+on:
+  # Rebuild every 7 days to pick up new Fluxer Canary versions
+  schedule:
+    - cron: "0 7 1/7 * *"
+  workflow_dispatch: {}
+
 jobs:
   build:
     name: Build AppImage
@@ -71,3 +77,4 @@ jobs:
           release_files: |
             *.AppImage
             *.AppImage.zsync
+            *.AppImage.sha256
