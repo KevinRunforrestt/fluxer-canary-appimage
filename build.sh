@@ -42,8 +42,8 @@ VERSION=$(ls ./AppDir/bin/ 2>/dev/null | head -1 || echo "")
 if echo "$VERSION" | grep -qP '\d{4}\.\d+\.\d+'; then
     VERSION=$(echo "$VERSION" | grep -oP '\d{4}\.\d+\.\d+')
 else
-    # Fallback: extract from the binary itself
-    VERSION="canary-$(date +%Y%m%d)"
+    # Fallback: use date
+    VERSION="$(date +%Y%m%d)"
 fi
 VERSION="${VERSION}-canary"
 export VERSION
