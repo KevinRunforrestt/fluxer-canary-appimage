@@ -32,8 +32,11 @@ It does not require FUSE to run, thanks to [uruntime](https://github.com/VHSgunz
 
 The CI automatically rebuilds the AppImage every seven days to include the latest Fluxer Canary updates from the official tarball.
 
-For more information, visit [AnyLinux-AppImages](https://pkgforge-dev.github.io/Anylinux-AppImages/).
+# Note for musl users:
+
+Please do not update using the client built-in updater, otherwise the appimage will stop working.
 
 ## Credits
 
 Thanks to [Samueru-sama](https://github.com/Samueru-sama) and [fiftydinar](https://github.com/fiftydinar) for making AppImage builds quicker and easier with the [Anylinux-AppImages](https://github.com/pkgforge-dev/Anylinux-AppImages) tools.
+
