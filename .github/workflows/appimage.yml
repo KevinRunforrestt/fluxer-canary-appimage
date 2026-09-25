@@ -5,14 +5,68 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  # Rebuild every 7 days to pick up new Fluxer Canary versions
+  # Check for new versions daily
   schedule:
-    - cron: "0 7 1/7 * *"
+    - cron: "0 7 * * *"
   workflow_dispatch: {}
 
 jobs:
+  check:
+    name: Check for new version
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      new_version: ${{ steps.check.outputs.new_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Check if new version available
+        id: check
+        run: |
+          set -euo pipefail
+          # Read our current version
+          LAST_BUILT=""
+          [ -f ./LATEST_VERSION ] && LAST_BUILT="$(tr -d '[:space:]' < ./LATEST_VERSION)"
+          echo "Current version: ${LAST_BUILT:-<none>}"
+
+          # Download the Fluxer Canary tarball header to get the version
+          # The tarball contains a directory like "Fluxer Canary-2026.824.124236-linux-x64"
+          # We download just enough to list the top-level directory name
+          TEMP_TGZ=$(mktemp)
+          wget -q "https://api.canary.fluxer.app/dl/desktop/canary/linux/x64/latest/tar_gz" -O "$TEMP_TGZ"
+
+          # Extract just the top-level directory name
+          TOP_DIR=$(tar tzf "$TEMP_TGZ" | head -1 | cut -d'/' -f1)
+          rm -f "$TEMP_TGZ"
+          echo "Tarball top dir: $TOP_DIR"
+
+          # Extract version number from the directory name
+          if echo "$TOP_DIR" | grep -qP '\d{4}\.\d+\.\d+'; then
+              NEW_VERSION=$(echo "$TOP_DIR" | grep -oP '\d{4}\.\d+\.\d+')"-canary"
+          else
+              NEW_VERSION="$(date +%Y%m%d)-canary"
+          fi
+          echo "New version: $NEW_VERSION"
+
+          # Compare
+          if [ -z "$LAST_BUILT" ]; then
+              echo "No previous build, building..."
+              echo "should_build=true" >> "$GITHUB_OUTPUT"
+          elif [ "$NEW_VERSION" != "$LAST_BUILT" ]; then
+              echo "New version detected: $NEW_VERSION (was: $LAST_BUILT)"
+              echo "should_build=true" >> "$GITHUB_OUTPUT"
+          else
+              echo "Up to date ($LAST_BUILT), skipping build"
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "new_version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build AppImage
+    needs: [check]
+    if: needs.check.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     container: ghcr.io/pkgforge-dev/archlinux:latest
     steps:
@@ -25,6 +79,11 @@ jobs:
         run: |
           chmod +x ./build.sh
           ./build.sh
+
+      - name: Update LATEST_VERSION
+        run: |
+          # Write the new version to LATEST_VERSION
+          echo "${{ needs.check.outputs.new_version }}" > LATEST_VERSION
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -40,21 +99,35 @@ jobs:
 
   release:
     name: Release to GitHub
-    if: ${{ github.ref_name == 'main' }}
+    if: ${{ github.ref_name == 'main' && needs.check.outputs.should_build == 'true' }}
     needs: [build]
     permissions: write-all
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - uses: actions/download-artifact@v4
         with:
           name: AppImage
           merge-multiple: true
 
+      - name: Update LATEST_VERSION and commit
+        run: |
+          echo "${{ needs.check.outputs.new_version }}" > LATEST_VERSION
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add LATEST_VERSION
+          git commit -m "chore: bump LATEST_VERSION to ${{ needs.check.outputs.new_version }}" || true
+          git push
+
       - name: Release AppImage
         uses: pkgforge-dev/make-stable-appimage-release@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          release_name: "Fluxer Canary"
+          release_name: "Fluxer Canary ${{ needs.check.outputs.new_version }}"
           release_body: |
             # Fluxer Canary AppImage
 
@@ -65,6 +138,7 @@ jobs:
             - Runs on any Linux distro (glibc, musl, NixOS)
             - No FUSE required (uruntime 0-requirements fallback)
             - All dependencies bundled (libc, ld-linux, mesa, audio, X11, Wayland)
+            - Internal auto-updater disabled (updates managed via AppImage self-updater)
 
             ## Usage
             ```bash
