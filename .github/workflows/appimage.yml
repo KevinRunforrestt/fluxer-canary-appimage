@@ -25,21 +25,25 @@ jobs:
       - name: Check if new version available
         id: check
         run: |
-          set -euo pipefail
+          set -eu
           # Read our current version
           LAST_BUILT=""
           [ -f ./LATEST_VERSION ] && LAST_BUILT="$(tr -d '[:space:]' < ./LATEST_VERSION)"
           echo "Current version: ${LAST_BUILT:-<none>}"
 
-          # Download the Fluxer Canary tarball header to get the version
-          # The tarball contains a directory like "Fluxer Canary-2026.824.124236-linux-x64"
-          # We download just enough to list the top-level directory name
-          TEMP_TGZ=$(mktemp)
-          wget -q "https://api.canary.fluxer.app/dl/desktop/canary/linux/x64/latest/tar_gz" -O "$TEMP_TGZ"
-
-          # Extract just the top-level directory name
-          TOP_DIR=$(tar tzf "$TEMP_TGZ" | head -1 | cut -d'/' -f1)
-          rm -f "$TEMP_TGZ"
+          # Download just enough of the tarball to get the top-level directory name
+          # The tarball is ~125MB but we only need the first entry name
+          # Using curl with a byte range to download just the first 512 bytes (tar header)
+          # Then parse the directory name from the tar header directly
+          HEADER=$(curl -sS -r 0-512 "https://api.canary.fluxer.app/dl/desktop/canary/linux/x64/latest/tar_gz" 2>/dev/null | gunzip 2>/dev/null | head -c 100 | strings | head -1)
+          
+          # If range request didn't work, fallback to downloading full tarball
+          if [ -z "$HEADER" ]; then
+            echo "Range request failed, downloading full tarball..."
+            HEADER=$(wget -qO- "https://api.canary.fluxer.app/dl/desktop/canary/linux/x64/latest/tar_gz" | tar tzf - 2>/dev/null | head -1 | cut -d'/' -f1 || true)
+          fi
+          
+          TOP_DIR="$HEADER"
           echo "Tarball top dir: $TOP_DIR"
 
           # Extract version number from the directory name
