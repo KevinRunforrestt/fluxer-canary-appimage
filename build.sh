@@ -54,6 +54,11 @@ chmod +x ./AppDir/bin/fluxer-canary ./AppDir/bin/fluxer_desktop_canary \
          ./AppDir/bin/chrome-sandbox ./AppDir/bin/chrome_crashpad_handler 2>/dev/null || true
 chmod +x ./AppDir/bin/*.so* 2>/dev/null || true
 
+# Disable Fluxer's internal auto-updater (Electron Squirrel updater)
+# This prevents the app from updating itself and breaking the AppImage
+rm -f ./AppDir/bin/resources/app-update.yml 2>/dev/null || true
+echo "Fluxer internal auto-updater disabled (app-update.yml removed)"
+
 echo "Files in AppDir/bin/: $(ls ./AppDir/bin/ | wc -l)"
 
 # ---------------------------------------------------------------------------
