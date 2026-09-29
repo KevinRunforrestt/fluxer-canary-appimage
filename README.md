@@ -30,9 +30,9 @@ The AppImage bundles its dependencies and should work on most Linux distribution
 
 It does not require FUSE to run, thanks to [uruntime](https://github.com/VHSgunzo/uruntime).
 
-The CI automatically rebuilds the AppImage every seven days to include the latest Fluxer Canary updates from the official tarball.
+The CI automatically rebuilds the AppImage whenever a new Fluxer Canary update is released from the official tarball.
 
-# Note for musl users:
+# Note for musl users
 
 Please do not update using the client built-in updater, otherwise the appimage will stop working.
 
