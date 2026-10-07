@@ -42,8 +42,8 @@ VERSION=$(ls ./AppDir/bin/ 2>/dev/null | head -1 || echo "")
 if echo "$VERSION" | grep -qP '\d{4}\.\d+\.\d+'; then
     VERSION=$(echo "$VERSION" | grep -oP '\d{4}\.\d+\.\d+')
 else
-    # Fallback: extract from the binary itself
-    VERSION="canary-$(date +%Y%m%d)"
+    # Fallback: use date
+    VERSION="$(date +%Y%m%d)"
 fi
 VERSION="${VERSION}-canary"
 export VERSION
@@ -53,6 +53,11 @@ echo "Fluxer version: $VERSION"
 chmod +x ./AppDir/bin/fluxer-canary ./AppDir/bin/fluxer_desktop_canary \
          ./AppDir/bin/chrome-sandbox ./AppDir/bin/chrome_crashpad_handler 2>/dev/null || true
 chmod +x ./AppDir/bin/*.so* 2>/dev/null || true
+
+# Disable Fluxer's internal auto-updater (Electron Squirrel updater)
+# This prevents the app from updating itself and breaking the AppImage
+rm -f ./AppDir/bin/resources/app-update.yml 2>/dev/null || true
+echo "Fluxer internal auto-updater disabled (app-update.yml removed)"
 
 echo "Files in AppDir/bin/: $(ls ./AppDir/bin/ | wc -l)"
 
@@ -108,6 +113,10 @@ export DEPLOY_OPENGL=1
 export DEPLOY_VULKAN=1
 
 # Deploy dependencies (same pattern as Discord-AppImage)
+# Skip libgdk_pixbuf bundling - Arch's version requires libgly which doesn't
+# exist on older distros. Let the host system provide libgdk_pixbuf instead.
+export QUICK_SHARUN_SKIP_DEPS_FOR="libgdk_pixbuf-2.0.so.0"
+
 quick-sharun \
     ./AppDir/bin/*         \
     /usr/bin/jq            \

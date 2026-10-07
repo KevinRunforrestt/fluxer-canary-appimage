@@ -4,9 +4,73 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
+on:
+  # Check for new versions daily
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch: {}
+
 jobs:
+  check:
+    name: Check for new version
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      new_version: ${{ steps.check.outputs.new_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Check if new version available
+        id: check
+        run: |
+          set -eu
+          # Read our current version
+          LAST_BUILT=""
+          [ -f ./LATEST_VERSION ] && LAST_BUILT="$(tr -d '[:space:]' < ./LATEST_VERSION)"
+          echo "Current version: ${LAST_BUILT:-<none>}"
+
+          # Download just enough of the tarball to get the top-level directory name
+          # The tarball is ~125MB but we only need the first entry name
+          # Using curl with a byte range to download just the first 512 bytes (tar header)
+          # Then parse the directory name from the tar header directly
+          HEADER=$(curl -sS -r 0-512 "https://api.canary.fluxer.app/dl/desktop/canary/linux/x64/latest/tar_gz" 2>/dev/null | gunzip 2>/dev/null | head -c 100 | strings | head -1)
+          
+          # If range request didn't work, fallback to downloading full tarball
+          if [ -z "$HEADER" ]; then
+            echo "Range request failed, downloading full tarball..."
+            HEADER=$(wget -qO- "https://api.canary.fluxer.app/dl/desktop/canary/linux/x64/latest/tar_gz" | tar tzf - 2>/dev/null | head -1 | cut -d'/' -f1 || true)
+          fi
+          
+          TOP_DIR="$HEADER"
+          echo "Tarball top dir: $TOP_DIR"
+
+          # Extract version number from the directory name
+          if echo "$TOP_DIR" | grep -qP '\d{4}\.\d+\.\d+'; then
+              NEW_VERSION=$(echo "$TOP_DIR" | grep -oP '\d{4}\.\d+\.\d+')"-canary"
+          else
+              NEW_VERSION="$(date +%Y%m%d)-canary"
+          fi
+          echo "New version: $NEW_VERSION"
+
+          # Compare
+          if [ -z "$LAST_BUILT" ]; then
+              echo "No previous build, building..."
+              echo "should_build=true" >> "$GITHUB_OUTPUT"
+          elif [ "$NEW_VERSION" != "$LAST_BUILT" ]; then
+              echo "New version detected: $NEW_VERSION (was: $LAST_BUILT)"
+              echo "should_build=true" >> "$GITHUB_OUTPUT"
+          else
+              echo "Up to date ($LAST_BUILT), skipping build"
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "new_version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build AppImage
+    needs: [check]
+    if: needs.check.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     container: ghcr.io/pkgforge-dev/archlinux:latest
     steps:
@@ -34,11 +98,16 @@ jobs:
 
   release:
     name: Release to GitHub
-    if: ${{ github.ref_name == 'main' }}
+    if: ${{ github.ref_name == 'main' && needs.check.outputs.should_build == 'true' }}
     needs: [build]
     permissions: write-all
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - uses: actions/download-artifact@v4
         with:
           name: AppImage
@@ -48,7 +117,7 @@ jobs:
         uses: pkgforge-dev/make-stable-appimage-release@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          release_name: "Fluxer Canary"
+          release_name: "Fluxer Canary ${{ needs.check.outputs.new_version }}"
           release_body: |
             # Fluxer Canary AppImage
 
@@ -59,6 +128,7 @@ jobs:
             - Runs on any Linux distro (glibc, musl, NixOS)
             - No FUSE required (uruntime 0-requirements fallback)
             - All dependencies bundled (libc, ld-linux, mesa, audio, X11, Wayland)
+            - Internal auto-updater disabled (updates managed via AppImage self-updater)
 
             ## Usage
             ```bash
@@ -71,3 +141,4 @@ jobs:
           release_files: |
             *.AppImage
             *.AppImage.zsync
+            *.AppImage.sha256
