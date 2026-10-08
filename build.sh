@@ -54,10 +54,24 @@ chmod +x ./AppDir/bin/fluxer-canary ./AppDir/bin/fluxer_desktop_canary \
          ./AppDir/bin/chrome-sandbox ./AppDir/bin/chrome_crashpad_handler 2>/dev/null || true
 chmod +x ./AppDir/bin/*.so* 2>/dev/null || true
 
-# Disable Fluxer's internal auto-updater (Electron Squirrel updater)
-# This prevents the app from updating itself and breaking the AppImage
+# Disable Fluxer's internal auto-updater completely
+# The updater is built into the app.asar code and downloads updates automatically.
+# We need to prevent it from running, as it would break the AppImage.
+# 
+# Strategy: Create a fake app-update.yml with invalid/empty config
+# electron-updater reads this file and if it has no valid provider, it won't update.
+# Also remove the real one if it exists.
 rm -f ./AppDir/bin/resources/app-update.yml 2>/dev/null || true
-echo "Fluxer internal auto-updater disabled (app-update.yml removed)"
+
+# Create a dummy app-update.yml that disables the updater
+# Setting owner to an empty string causes electron-updater to skip updates
+cat > ./AppDir/bin/resources/app-update.yml <<'UPDATER'
+owner: ""
+repo: ""
+provider: github
+UPDATER
+
+echo "Fluxer internal auto-updater disabled (dummy app-update.yml created)"
 
 echo "Files in AppDir/bin/: $(ls ./AppDir/bin/ | wc -l)"
 
