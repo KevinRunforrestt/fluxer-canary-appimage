@@ -5,7 +5,6 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  # Check for new versions daily
   schedule:
     - cron: "0 7 * * *"
   workflow_dispatch: {}
@@ -26,35 +25,36 @@ jobs:
         id: check
         run: |
           set -eu
+
           # Read our current version
           LAST_BUILT=""
           [ -f ./LATEST_VERSION ] && LAST_BUILT="$(tr -d '[:space:]' < ./LATEST_VERSION)"
           echo "Current version: ${LAST_BUILT:-<none>}"
 
-          # Download just enough of the tarball to get the top-level directory name
-          # The tarball is ~125MB but we only need the first entry name
-          # Using curl with a byte range to download just the first 512 bytes (tar header)
-          # Then parse the directory name from the tar header directly
-          HEADER=$(curl -sS -r 0-512 "https://api.canary.fluxer.app/dl/desktop/canary/linux/x64/latest/tar_gz" 2>/dev/null | gunzip 2>/dev/null | head -c 100 | strings | head -1)
-          
-          # If range request didn't work, fallback to downloading full tarball
-          if [ -z "$HEADER" ]; then
-            echo "Range request failed, downloading full tarball..."
-            HEADER=$(wget -qO- "https://api.canary.fluxer.app/dl/desktop/canary/linux/x64/latest/tar_gz" | tar tzf - 2>/dev/null | head -1 | cut -d'/' -f1 || true)
-          fi
-          
-          TOP_DIR="$HEADER"
+          # Download the full tarball and extract just the top-level directory name.
+          # The tarball is ~125MB but this runs on GitHub Actions (fast network).
+          # We pipe directly from wget to tar and only read the first entry.
+          # Using `set +o pipefail` to prevent SIGPIPE from head -1 breaking the script.
+          set +o pipefail
+          TOP_DIR=$(wget -qO- "https://api.canary.fluxer.app/dl/desktop/canary/linux/x64/latest/tar_gz" | tar tzf - 2>/dev/null | head -1 | cut -d'/' -f1)
+          set -o pipefail
+
+          # Clean up any trailing characters
+          TOP_DIR=$(echo "$TOP_DIR" | tr -d '[:space:]')
           echo "Tarball top dir: $TOP_DIR"
 
           # Extract version number from the directory name
+          # Format: "Fluxer-Canary-2026.1007.194714-linux-x64"
           if echo "$TOP_DIR" | grep -qP '\d{4}\.\d+\.\d+'; then
               NEW_VERSION=$(echo "$TOP_DIR" | grep -oP '\d{4}\.\d+\.\d+')"-canary"
           else
+              # Fallback: use date if we can't parse the version
               NEW_VERSION="$(date +%Y%m%d)-canary"
+              echo "WARNING: Could not parse version from '$TOP_DIR', using date: $NEW_VERSION"
           fi
           echo "New version: $NEW_VERSION"
 
-          # Compare
+          # Compare versions
           if [ -z "$LAST_BUILT" ]; then
               echo "No previous build, building..."
               echo "should_build=true" >> "$GITHUB_OUTPUT"
