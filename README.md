@@ -1,3 +1,7 @@
+# PROJECT ARCHIVED
+
+Fluxer canary is too unstable and its updates do not help in anything, the appimage is almost always updated on its own and this breaks my appimage, I can not do anything for this.
+
 <div align="center">
 
 # Fluxer-Canary-AppImage 🐧
